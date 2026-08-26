@@ -12,6 +12,7 @@ The agent combines:
 - Privacy protection and prompt-injection handling
 - Safe abstention and human handoff
 - Source reporting
+- Deterministic regression evaluation
 
 ---
 
@@ -19,9 +20,11 @@ The agent combines:
 
 ### Grounded knowledge-base answers
 
-The agent retrieves relevant policy and product chunks and returns source metadata with answers.
+The agent retrieves relevant policy and product chunks from the supplied Markdown knowledge base and returns source metadata with answers.
 
-Current/active and official policy documents receive ranking boosts so legacy or non-authoritative material is less likely to control the answer.
+Current and active official policy documents receive ranking boosts so legacy or non-authoritative material is less likely to control the answer.
+
+The agent explicitly surfaces genuine conflicts between active official sources instead of silently choosing one.
 
 ### Order lookup
 
@@ -31,60 +34,75 @@ The agent:
 
 - asks for an order ID when one is missing
 - accepts lowercase order IDs
-- handles unknown orders safely
-- uses current order status as authoritative
+- handles unknown and malformed orders safely
+- uses the current order status as authoritative
 - does not invent missing delivery estimates
-- avoids stale shipping information for cancelled orders
+- avoids stale shipping information for cancelled or returned orders
 - protects customer email, address, internal notes, risk scores, and support tags
+- never claims that a lookup occurred when it did not
 
 ### Multi-turn memory
 
-The agent remembers the order ID within a conversation so follow-up questions such as:
+The agent remembers relevant context within a conversation.
+
+For example:
+
+> "Where is ORD-1007?"
+
+followed by:
 
 > "When should it arrive?"
 
 can reuse the previously identified order.
 
+The same approach supports policy follow-ups such as:
+
+> "Do you ship internationally?"
+
+followed by:
+
+> "What about Canada?"
+
 ### Safe abstention
 
-When the knowledge base does not support an answer, the agent can recommend human confirmation rather than inventing information.
+When the knowledge base does not support an answer, the agent avoids inventing information and can recommend human assistance.
 
 ### Source conflicts
 
 The agent explicitly surfaces genuine conflicts between active official sources.
 
-For example, the Breeze Tumbler has conflicting dishwasher guidance between the Product Care Guide and Product Information product card. The agent does not silently choose one source and instead recommends human confirmation.
+For example, the Breeze Tumbler has conflicting dishwasher guidance between the Product Care Guide and Product Information product card.
+
+The agent does not silently choose one source and instead recommends human confirmation with safer interim guidance.
 
 ---
 
 # Architecture
 
-```text
-User
-  |
-  v
-SupportAgent.handle()
-  |
-  +--> Privacy / prompt-injection checks
-  |
-  +--> Order detection
-  |       |
-  |       +--> get_order()
-  |       |
-  |       +--> safe customer-facing response
-  |
-  +--> Knowledge-base retrieval
-          |
-          +--> TF-IDF + cosine similarity
-          |
-          +--> active/official precedence
-          |
-          +--> OpenAI Responses API
-          |       |
-          |       +--> local retrieval fallback
-          |
-          +--> sources + handoff
-```
+    User
+      |
+      v
+    SupportAgent.handle()
+      |
+      +--> Privacy / prompt-injection checks
+      |
+      +--> Order detection
+      |       |
+      |       +--> get_order()
+      |       |
+      |       +--> safe customer-facing response
+      |
+      +--> Knowledge-base retrieval
+              |
+              +--> TF-IDF + cosine similarity
+              |
+              +--> active/official precedence
+              |
+              +--> OpenAI Responses API
+              |       |
+              |       +--> local retrieval fallback
+              |
+              +--> sources + handoff
 
 ---
 
@@ -100,7 +118,8 @@ SupportAgent.handle()
 | Storage | Local Markdown knowledge base + JSON order data |
 | Memory | In-process conversation memory |
 | Testing | pytest |
-| Interface | Python/CLI-style invocation |
+| Evaluation | Deterministic Python evaluation suite |
+| Interface | Python CLI |
 
 This intentionally avoids a vector database or production infrastructure because the assignment prioritizes a small, reliable implementation.
 
@@ -110,8 +129,8 @@ This intentionally avoids a vector database or production infrastructure because
 
 ## 1. Clone the repository
 
-```bash
-git clone <YOUR_GITHUB_REPOSITORY_URL>
+```powershell
+git clone https://github.com/Hrithikdoi/ai-agent-intern-test.git
 cd ai-agent-intern-test
 ```
 
@@ -121,6 +140,18 @@ Windows PowerShell:
 
 ```powershell
 python -m venv .venv
+.venv\Scripts\Activate.ps1
+```
+
+If PowerShell blocks script execution, run:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned
+```
+
+Then activate the environment:
+
+```powershell
 .venv\Scripts\Activate.ps1
 ```
 
@@ -138,7 +169,7 @@ Copy `.env.example` to `.env`:
 Copy-Item .env.example .env
 ```
 
-Then put your own API key in `.env`:
+Then add your own API key:
 
 ```text
 OPENAI_API_KEY=your_api_key_here
@@ -146,39 +177,143 @@ OPENAI_API_KEY=your_api_key_here
 
 Never commit `.env` or real credentials.
 
+`.env` is excluded through `.gitignore`.
+
 ---
 
 # Running the Agent
 
-Example knowledge-base question:
+Start the interactive CLI with:
 
 ```powershell
-python -c "from app.agent import SupportAgent; a=SupportAgent(); r=a.handle('How long does a regular customer have to return an unused backpack?'); print(r.answer); print(r.sources)"
+python -m app.main
 ```
 
-Example order lookup:
+The interface displays:
 
-```powershell
-python -c "from app.agent import SupportAgent; a=SupportAgent(); r=a.handle('Where is ORD-1007 and when should it arrive?'); print(r.answer); print(r.tool_used)"
+- the answer
+- sources when applicable
+- tool usage
+- whether human handoff is recommended
+
+### Example knowledge-base question
+
+```text
+You: How long does a regular customer have to return an unused backpack?
 ```
 
-Example multi-turn conversation:
+### Example order lookup
 
-```powershell
-python -c "from app.agent import SupportAgent; a=SupportAgent(); r1=a.handle('Do you ship internationally?'); r2=a.handle('What about Canada, and how long does it take?'); print(r1.answer); print(r2.answer)"
+```text
+You: Where is ORD-1007 and when should it arrive?
 ```
+
+The agent performs an order lookup and returns the current status and available delivery information without exposing internal order fields.
+
+### Example multi-turn conversation
+
+```text
+You: Do you ship internationally?
+
+You: What about Canada, and how long does it take?
+```
+
+The second question uses relevant context from the first turn.
+
+### Example conflict handling
+
+```text
+You: Can I put the entire Breeze Tumbler in the dishwasher?
+```
+
+The agent identifies the conflicting official sources and recommends human confirmation rather than silently selecting one instruction.
 
 ---
 
 # Evaluation
 
-Run the automated regression suite with:
+The repository contains two levels of automated testing:
+
+1. Unit tests using pytest
+2. Behavior-level evaluation covering the supplied visible cases and five original regression cases
+
+## Behavior-Level Evaluation
+
+Run the complete evaluation suite with:
 
 ```powershell
-pytest -v
+python evaluation\run_evaluation.py
 ```
 
-## Automated Results
+The evaluator reports:
+
+- individual case results
+- retrieval
+- groundedness
+- tool use
+- privacy
+- multi-turn behavior
+- prompt security
+- source conflicts
+- tool reliability
+- abstention
+
+The evaluation uses deterministic assertions wherever practical and does not rely exclusively on another LLM to grade the agent.
+
+## Final Evaluation Result
+
+```text
+TOTAL: 20/20 PASS
+```
+
+**20/20 cases passed (100%).**
+
+This includes:
+
+- 15 supplied visible cases
+- 5 original regression cases
+
+### Results by category
+
+| Category | Result |
+|---|---:|
+| Abstention | 1/1 |
+| Conversation | 1/1 |
+| Groundedness | 3/3 |
+| Multi-source grounding | 1/1 |
+| Multi-turn | 1/1 |
+| Privacy | 2/2 |
+| Prompt security | 1/1 |
+| Retrieval | 2/2 |
+| Source conflict | 1/1 |
+| Tool reliability | 3/3 |
+| Tool use | 2/2 |
+| Tool-use regression cases | 2/2 |
+| **Total** | **20/20** |
+
+## Early Baseline
+
+The first automated evaluation run achieved:
+
+```text
+17/20 PASS
+```
+
+After fixing retrieval/source handling, privacy behavior, conflict handling, tool reliability, and deterministic evaluation normalization, the final result improved to:
+
+```text
+20/20 PASS
+```
+
+---
+
+# Unit Tests
+
+Run:
+
+```powershell
+python -m pytest -v
+```
 
 Final result:
 
@@ -186,38 +321,47 @@ Final result:
 18 passed
 ```
 
-### Results by category
+**18/18 unit tests passed (100%).**
 
-| Category | Result |
-|---|---:|
-| Agent behavior | 6/6 |
-| Memory | 3/3 |
-| Order handling | 4/4 |
-| Retrieval | 5/5 |
-| **Total** | **18/18** |
+The unit tests cover:
+
+- missing order IDs
+- valid order lookup
+- unknown orders
+- private order data
+- prompt injection
+- order memory
+- memory storage and clearing
+- order ID normalization
+- invalid order IDs
+- knowledge-base loading
+- source metadata
+- return-policy retrieval
+- shipping retrieval
+- current-policy precedence
 
 ---
 
-# Visible Evaluation Cases
+# Supplied Visible Evaluation Cases
 
-All 15 supplied visible cases were manually exercised during development.
+All 15 supplied visible cases pass in the automated evaluation suite.
 
-**Result: 15/15 visible cases checked successfully.**
+**Result: 15/15 PASS**
 
-Important scenarios included:
+Important scenarios include:
 
 - Standard vs TrailPlus return windows
-- Final-sale damaged item handling
+- Final-sale damaged-item handling
 - International shipping and Canada follow-up
 - Unsupported Germany shipping
 - Order lookup and missing order IDs
 - Cancelled orders
 - Missing delivery estimates
 - Private order data protection
-- Lifetime warranty question
+- Lifetime warranty questions
 - Prompt-injection/migration-note handling
-- Unsupported vegan-material question
-- Breeze Tumbler source conflict
+- Insufficient information
+- Genuine active-source conflict
 
 ---
 
@@ -229,6 +373,8 @@ Five additional cases were created in:
 evaluation/custom-cases.json
 ```
 
+They are included in the automated evaluation suite and run alongside the supplied visible cases.
+
 They cover:
 
 1. Lowercase order ID normalization
@@ -237,7 +383,7 @@ They cover:
 4. Private order information protection
 5. Breeze Tumbler source conflict
 
-These five cases were manually exercised and produced the expected behavior.
+**Result: 5/5 PASS**
 
 ---
 
@@ -259,7 +405,7 @@ The method was accidentally nested inside another method because of incorrect in
 
 ### Fix
 
-Corrected the method indentation so `_handle_policy_question()` became a class-level method.
+Corrected the indentation so `_handle_policy_question()` became a class-level method.
 
 ### Regression
 
@@ -271,7 +417,7 @@ Policy-question execution was rerun and the retrieval tests continued to pass.
 
 ### Failure
 
-Policy questions raised an OpenAI:
+Policy questions raised:
 
 ```text
 429 insufficient_quota
@@ -289,7 +435,7 @@ When the API is unavailable, the agent can still produce a grounded response fro
 
 ### Regression
 
-Policy questions were rerun successfully using the fallback behavior.
+Policy questions were rerun successfully using the fallback behavior and the full evaluation suite continued to pass.
 
 ---
 
@@ -301,7 +447,7 @@ The agent initially returned one dishwasher instruction without explicitly ident
 
 ### Root cause
 
-Retrieval returned two active official sources with contradictory cleaning instructions, but the answer-generation path did not explicitly handle that known conflict.
+Retrieval returned two active official sources with contradictory cleaning instructions, but the answer-generation path did not explicitly handle that conflict.
 
 ### Fix
 
@@ -316,25 +462,52 @@ The response now:
 
 ### Regression
 
-The Breeze Tumbler conflict case now returns:
+The Breeze Tumbler conflict case now passes in both the visible and custom evaluation suites.
+
+---
+
+## 4. Deterministic evaluation normalization
+
+### Failure
+
+A correct warranty response initially failed a deterministic evaluation because the response contained Markdown formatting:
 
 ```text
-HANDOFF: True
+Drinkware: **1 year from the purchase date**.
 ```
 
-and cites both relevant documents.
+while the evaluator expected the same concept without Markdown markers.
+
+### Root cause
+
+The evaluator normalized text but did not initially remove common Markdown formatting characters.
+
+### Fix
+
+Updated the evaluation normalization logic to remove harmless Markdown formatting before concept matching.
+
+### Regression
+
+The warranty evaluation now passes as part of the final:
+
+```text
+20/20 PASS
+```
+
+This issue was discovered while testing the implementation beyond the original unit-test suite.
 
 ---
 
 # Known Limitations
 
-- Retrieval uses TF-IDF rather than semantic embeddings, so paraphrases can be less robust than an embedding-based system.
+- Retrieval uses TF-IDF rather than semantic embeddings, so some paraphrases may be less robust than an embedding-based system.
 - Conversation memory is in-process and is not persistent across application restarts.
-- The order dataset is local mock data rather than a production database/API.
+- The order dataset is local mock data rather than a production database or API.
 - The current interface is intended for demonstration rather than production deployment.
-- Conflict detection currently includes explicit handling for the known Breeze Tumbler conflict rather than a general-purpose policy contradiction engine.
+- Conflict detection currently includes explicit handling for the known Breeze Tumbler conflict rather than a general-purpose contradiction engine.
 - OpenAI API usage depends on available API quota; the local retrieval fallback reduces this dependency but does not provide full LLM-quality synthesis.
-- The five custom evaluation cases are currently stored as JSON regression cases and were manually exercised rather than being integrated into the pytest suite.
+- The current implementation has not been deployed as a production service.
+- No production authentication or identity verification is implemented because the assignment explicitly treats possession of the order ID as sufficient authentication for the mock environment.
 
 ## Production Improvements
 
@@ -344,11 +517,12 @@ Before production I would add:
 - systematic source-conflict detection
 - persistent session storage
 - structured logging and trace IDs
-- stronger automated evaluation
+- broader automated evaluation
 - production order-service integration
 - authentication and authorization
 - monitoring and alerting
 - more comprehensive adversarial testing
+- stronger observability and tracing
 
 ---
 
@@ -360,11 +534,15 @@ AI assistance was used during development for:
 - reviewing retrieval and agent behavior
 - identifying indentation and control-flow problems
 - designing regression cases
-- improving documentation and test coverage
+- improving documentation
+- improving test coverage
+- troubleshooting evaluation failures
 
 One example of an incomplete AI-generated suggestion was an initial answer-generation approach that could return retrieved chunks without adequately resolving conflicting authoritative sources.
 
 This was corrected by explicitly handling the known Breeze Tumbler conflict and requiring human confirmation.
+
+Another example occurred during evaluation development: an initial deterministic matcher did not account for Markdown formatting in an otherwise correct warranty response. The evaluator was updated to normalize harmless Markdown formatting before checking concepts.
 
 AI-generated suggestions were reviewed and tested locally before being retained.
 
@@ -372,23 +550,24 @@ AI-generated suggestions were reviewed and tested locally before being retained.
 
 # Demo
 
-A 2–4 minute demonstration should show:
+The 2–4 minute demonstration video shows:
 
-1. A knowledge-base question with sources
+1. A knowledge-base question with citations
 2. An order lookup
 3. A multi-turn conversation
-4. A case where the agent refuses to guess or recommends human help
-5. The evaluation suite running
+4. A case where the agent correctly refuses to guess or recommends human help
+5. The automated evaluation suite running
 
 ## Demo Video
 
-The 2–4 minute demo demonstrates:
+The demo includes:
 
 - Knowledge-base question with sources
 - Order lookup using the order tool
 - Multi-turn conversation
 - Conflicting-source handling and human handoff
-- Full pytest evaluation suite with 18 passing tests
+- Automated behavior evaluation with 20/20 cases passing
+- Unit test suite with 18/18 tests passing
 
 [▶️ Watch the full demo video](https://drive.google.com/file/d/1KIslV6hP9LFqsuCaUH5Cl3tRyiH7QARi/view?usp=sharing)
 
@@ -403,6 +582,7 @@ The 2–4 minute demo demonstrates:
 ├── .gitignore
 ├── requirements.txt
 ├── pytest.ini
+│
 ├── app/
 │   ├── __init__.py
 │   ├── agent.py
@@ -411,9 +591,11 @@ The 2–4 minute demo demonstrates:
 │   ├── orders.py
 │   ├── prompts.py
 │   └── retrieval.py
+│
 ├── data/
 │   ├── orders.json
 │   └── orders-data-dictionary.md
+│
 ├── knowledge-base/
 │   ├── 01-returns-policy-current.md
 │   ├── 02-returns-policy-legacy.md
@@ -429,9 +611,12 @@ The 2–4 minute demo demonstrates:
 │   ├── 12-breeze-tumbler-product-card.md
 │   ├── 13-support-escalation.md
 │   └── 14-internal-content-migration-notes.md
+│
 ├── evaluation/
 │   ├── visible-cases.json
-│   └── custom-cases.json
+│   ├── custom-cases.json
+│   └── run_evaluation.py
+│
 └── tests/
     ├── test_agent.py
     ├── test_memory.py
@@ -443,22 +628,28 @@ The 2–4 minute demo demonstrates:
 
 # Final Status
 
-### Automated regression suite
+### Automated behavior evaluation
 
-**18/18 tests passing**
+**20/20 cases passing — 100%**
+
+### Unit tests
+
+**18/18 tests passing — 100%**
 
 ### Supplied visible cases
 
-**15/15 manually checked**
+**15/15 passing**
 
 ### Original regression cases
 
-**5 added and manually exercised**
+**5/5 passing**
 
 ### Security
 
 - `.env` excluded through `.gitignore`
 - `.env.example` contains no real credentials
 - Customer email, address, internal notes, risk scores, and support tags are protected
+- Retrieved instruction-like content is treated as untrusted data
+- Unsupported or conflicting information can trigger human handoff
 
 The implementation intentionally favors a small, testable, and controlled system over unnecessary production infrastructure.
