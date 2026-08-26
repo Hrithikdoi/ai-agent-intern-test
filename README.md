@@ -380,21 +380,17 @@ A 2–4 minute demonstration should show:
 4. A case where the agent refuses to guess or recommends human help
 5. The evaluation suite running
 
-## Demo Video / GIF
+## Demo Video
 
-**TODO: Add the final 2–4 minute demo GIF or video here before submission.**
+The 2–4 minute demo demonstrates:
 
-Example:
+- Knowledge-base question with sources
+- Order lookup using the order tool
+- Multi-turn conversation
+- Conflicting-source handling and human handoff
+- Full pytest evaluation suite with 18 passing tests
 
-```markdown
-[Watch the demo video](YOUR_VIDEO_LINK)
-```
-
-or embed a GIF:
-
-```markdown
-![Agent Demo](demo.gif)
-```
+[▶️ Watch the full demo video](https://drive.google.com/file/d/1KIslV6hP9LFqsuCaUH5Cl3tRyiH7QARi/view?usp=sharing)
 
 ---
 
